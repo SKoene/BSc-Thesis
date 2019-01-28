@@ -1,0 +1,140 @@
+#!/usr/bin/python
+# Def: https://www.displayr.com/what-is-a-distance-matrix/
+# Source: https://stackoverflow.com/questions/29481485/creating-a-distance-matrix
+
+# import used libs
+import sys
+import mysql.connector
+from config import *
+
+def tbl_prod():
+        # Prepare geneList
+        genes = []
+
+        # Collect tablenames
+        sqlSelect = "show tables like '%P%'"
+        cursor.execute(sqlSelect)
+
+        # Process the data and build geneList
+        data = cursor.fetchall()
+        for row in data :
+                genes.append(row[0])
+
+        # Make product out of geneList
+        #tbs = [[_gene,gene] for _gene in genes for gene in genes]
+        tbs = [[gene] for gene in genes]
+        #print(tbs)
+        return tbs
+
+def createDistMatrix():
+        sqlSelect = "DROP TABLE IF EXISTS DistanceMatrix"
+        cursor.execute(sqlSelect)
+        connection.commit()
+
+        sqlSelect = "CREATE TABLE DistanceMatrix ("
+        sqlSelect += "PxP CHAR(25), "
+
+        for i in range (0, maxrows): 
+                fieldname = getFieldname(i)
+#                sqlSelect += fieldname + " CHAR(25),"    
+                sqlSelect += fieldname + " float(25,20),"
+                #print(sqlSelect)                
+        #exit()
+
+        sqlSelect += " PRIMARY KEY (PxP) "
+        sqlSelect += ");"
+        # print(sqlSelect)
+        cursor.execute(sqlSelect)
+        connection.commit()
+
+def getFieldname(i):
+        field = tableLists[i]
+        #print(field)
+        fieldname = field[0][:field[0].rfind('_')+ 2].replace('_','')
+        #print(fieldname)
+        return fieldname
+
+#====================== Main flow the module =============================
+# open a database connection
+# be sure to change the host IP address, username, password and database name to match your own
+connection = mysql.connector.connect(host=myHost,database=myDb,user=myUser,password=myPasswd)
+
+# prepare a cursor object using cursor() method
+cursor = connection.cursor()
+
+# Make product of tablenames
+tableLists = tbl_prod()
+#maxrows = 100 # Hmmmm not enough space for all the columns
+maxrows = len(tableLists)
+print('Processing: '+str(len(tableLists))+ ' datasets in creating a Distance Matrix')
+print("\n\n")
+
+#================ create DistanceMatrix (table) ================
+createDistMatrix()
+# exit()
+
+# dataset selection and distance calculation
+#for tableList in tableLists:
+for k in range (0, maxrows):
+#        print('Initiating DistanceMatrix: '+str(k+1)+ ' row of ' + str(maxrows) + ' datasets', end="",flush=True)
+#        print("\n")
+
+        fieldname = getFieldname(k)
+        sqlSelect = "REPLACE INTO DistanceMatrix (PxP," + fieldname + ") "
+        sqlSelect += "VALUES ('" + fieldname + "',0);"
+        # print(sqlSelect)
+        # exit()
+        cursor.execute(sqlSelect)
+        connection.commit()
+    
+#exit()
+
+for k in range (0, maxrows):
+    Distance = 0
+    tableA = tableLists[k][0]
+    for l in range (0, maxrows):
+       tableB = tableLists[l][0]
+       #print(tableA)
+      # print(tableB)
+       if tableA != tableB:
+          sqlSelect = "select count(*) from " + tableA
+          cursor.execute(sqlSelect)
+          TNoG = cursor.fetchone()[0] #Total Number of Genes in dataset
+          
+          sqlSelect ="select count(*) from " + tableB # Total Number of Genes in second datset
+          cursor.execute(sqlSelect)
+          TNoG2 = cursor.fetchone()[0] #Total Number of Genes in second dataset
+          STG = min(TNoG, TNoG2) # determination of smallest dataset
+          
+          sqlSelect  ="(SELECT count(*) FROM "
+          sqlSelect +="(SELECT "
+          sqlSelect += tableA + ".GeneID AS T1, "
+          sqlSelect += tableB + ".GeneID AS T2 "
+          sqlSelect +="FROM " + tableA + " "
+          sqlSelect +="INNER JOIN " + tableB + " ON " + tableB + ".GeneID=" + tableA + ".GeneID "
+          sqlSelect +=") AS TT);"
+          #print(sqlSelect)
+          #exit()
+          
+          cursor.execute(sqlSelect)
+          OG = cursor.fetchone()[0]
+          Distance = (1-(OG/STG))
+          fieldnameA = getFieldname(k)
+          fieldnameB = getFieldname(l)
+          sqlSelect ="UPDATE DistanceMatrix SET " + fieldnameA + "=" + str(Distance) + " "
+          sqlSelect += "WHERE PxP='" + fieldnameB + "'"
+          #print(sqlSelect)
+          #print("\n")
+          #exit()
+          print('Initiating DistanceMatrix: dataset '+str(k+1)+ '  within a total of ' + str(maxrows) + ' datasets...', end="",flush=True)
+          print('  Distance between dataset ' + fieldnameA + ' and ' + fieldnameB + ' is: ' +str(Distance))
+          
+          cursor.execute(sqlSelect)
+          connection.commit() 
+# exit()
+
+# close the cursor object
+cursor.close()
+
+# close the connection
+connection.close()
