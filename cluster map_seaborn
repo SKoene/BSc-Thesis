@@ -1,0 +1,22 @@
+#!/usr/bin/python
+# Def: https://www.displayr.com/what-is-a-distance-matrix/
+# Source: https://stackoverflow.com/questions/29481485/creating-a-distance-matrix
+
+# import used libs
+import sys
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+import scipy.spatial as sp
+import scipy.cluster.hierarchy as sch
+
+sns.set()
+
+# Load the brain networks example dataset
+df = pd.read_csv('../../DistanceMatrix.csv', header=[0],  delimiter= None, index_col=0)
+linkage = sch.linkage(sp.distance.squareform(df), method='average')
+sns.clustermap(df, center=0.5, cmap="viridis", linewidths=.75, figsize=(48, 12), row_linkage=linkage, col_linkage=linkage)
+
+plt.show()
+
