@@ -1,0 +1,159 @@
+# Import the OBO parser from GOATools
+from goatools import obo_parser
+
+#import other libs
+from goatools.go_enrichment import GOEnrichmentStudy
+import Bio.UniProt.GOA as GOA
+import gzip
+import wget
+import os
+from ftplib import FTP
+import pandas as pd
+import xlrd
+import openpyxl
+import csv
+
+go_obo_url = 'http://purl.obolibrary.org/obo/go/go-basic.obo'
+data_folder = os.getcwd() + '/data'
+
+# Check if we have the ./data directory already
+if(not os.path.isfile(data_folder)):
+    # Emulate mkdir -p (no error if folder exists)
+    try:
+        os.mkdir(data_folder)
+    except OSError as e:
+        if(e.errno != 17):
+            raise e
+else:
+    raise Exception('Data path (' + data_folder + ') exists as a file. '
+                   'Please rename, remove or change the desired location of the data path.')
+
+# Check if the file exists already
+if(not os.path.isfile(data_folder+'/go-basic.obo')):
+    go_obo = wget.download(go_obo_url, data_folder+'/go-basic.obo')
+else:
+    go_obo = data_folder+'/go-basic.obo'
+
+print('\n')    
+print(go_obo)
+
+#hier wordt volgens mij een GO structure gemaakt
+go = obo_parser.GODag(go_obo)
+go_id = 'GO:0048527'
+go_term = go[go_id]
+print('\n')
+print(go_term)
+
+arab_uri = '/pub/databases/GO/goa/ARABIDOPSIS/goa_arabidopsis.gaf.gz'
+arab_fn = arab_uri.split('/')[-1]
+
+# Check if the file exists already
+arab_gaf = os.path.join(data_folder, arab_fn)
+if(not os.path.isfile(arab_gaf)):
+    # Login to FTP server
+    ebi_ftp = FTP('ftp.ebi.ac.uk')
+    ebi_ftp.login() # Logs in anonymously
+    
+    # Download
+    with open(arab_gaf,'wb') as arab_fp:
+        ebi_ftp.retrbinary('RETR {}'.format(arab_uri), arab_fp.write)
+        
+    # Logout from FTP server
+    ebi_ftp.quit()
+    
+# File is a gunzip file, so we need to open it in this way
+with gzip.open(arab_gaf, 'rt') as arab_gaf_fp:
+    arab_funcs = {}  # Initialise the dictionary of functions
+    
+    # Iterate on each function using Bio.UniProt.GOA library.
+    for entry in GOA.gafiterator(arab_gaf_fp):
+        uniprot_id = entry.pop('DB_Object_ID')
+        arab_funcs[uniprot_id] = entry
+
+print('\n')
+print(arab_funcs[list(arab_funcs.keys())[0]])
+
+not_count = 0
+total_count = len(arab_funcs)
+for func in arab_funcs.values():
+    if 'NOT' in func['Qualifier']:
+        not_count += 1
+        
+print('\n')
+print('Total count of NOT qualifiers: {} ({}%)'.format(not_count, round(((float(not_count)/float(total_count))*100),2)))
+print('Total number of annotations: {}'.format(total_count))
+
+arab_tax_id = 3702  # This isn't necessary here, but would be with the full data set.
+
+annot_count = 0
+counted_gene = []
+for uniprot_id in arab_funcs:
+    if('taxon:' + str(arab_tax_id) in arab_funcs[uniprot_id]['Taxon_ID']):
+        if((arab_funcs[uniprot_id]['GO_ID'] == go_id)):
+            counted_gene.append(uniprot_id)
+            annot_count += 1
+
+del counted_gene
+print('\n')
+print(annot_count)
+
+#keyword = growth
+#growth_dict = {x: arab_funcs[x]
+#               for x in arab_funcs 
+#               if keyword in arab_funcs[x]['DB_Object_Name']}
+#print('UniProt IDs of annotations with "growth" in their name:')
+#for annot in growth_dict:
+#    print("\t - " + annot)
+#print("Total: {}".format(len(growth_dict)))
+
+#population set or otherwise known as backgroundset (GO arabidopsis dataset)
+pop = arab_funcs.keys()
+#file_name = '../Analysis/ALL_identifiers_uniprot.xlsx'
+#xl_workbook = pd.ExcelFile(file_name)  # Load the excel workbook
+#df = xl_workbook.parse("Sheet0")  # Parse the sheet into a dataframe
+#pop = df['Entry'].tolist()  # Cast the desired column into a python list
+#study_clusterD = (pd.read_excel('../Analysis/clusterD-uniprot.xlsx')
+
+assoc = {}
+for x in arab_funcs:
+    if x not in assoc:
+        assoc[x] = set()
+
+    assoc[x].add(str(arab_funcs[x]['GO_ID']))
+#study is the dataset to be analysed
+
+file_name = '../Analysis/ALL_identifiers_uniprot.xlsx'
+xl_workbook = pd.ExcelFile(file_name)  # Load the excel workbook
+df = xl_workbook.parse("Sheet0")  # Parse the sheet into a dataframe
+study_cluster = df['Entry'].tolist()  # Cast the desired column into a python list
+#study_clusterD = (pd.read_excel('../Analysis/clusterD-uniprot.xlsx')
+
+study = study_cluster
+methods = ["fdr_bh"]
+g = GOEnrichmentStudy(pop, assoc, go,
+                         propagate_counts=True,
+                         alpha=0.05,
+                         methods=methods)
+
+g_res = g.run_study(study)
+enriched_s = []
+for x in g_res:
+    if x.p_fdr_bh <= 0.05:
+        enriched_s.append([x.goterm.id,go[x.goterm.id].name, x.p_fdr_bh]) # dit voegt ze toe als list
+#    enriched_s.append((x.goterm.id,go[x.goterm.id].name, x.p_fdr_bh))  # dit voegt ze als tuples toe
+
+GOlist = []
+for enriched in enriched_s:
+    GOlist.append(enriched[0])
+print(GOlist)
+
+ID_dict = {x: arab_funcs[x] for x in arab_funcs if arab_funcs[x]['GO_ID'] in GOlist}
+
+print('\n')
+print('UniProt IDs of annotations with enriched GO-terms:')
+for ID in ID_dict:
+    print("\t - " + ID)
+
+print("Total: {}".format(len(ID_dict)))
+print('\n')
+print('End of GOA proces\n')
